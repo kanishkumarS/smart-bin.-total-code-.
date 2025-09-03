@@ -1,36 +1,35 @@
-#include <SPI.h>
-#include <DMD2.h>
-#include <fonts/SystemFont5x7.h>
-#include <Servo.h>
-#include <SoftwareSerial.h>
+#include <SPI.h>                             // FOR UART COMMUNICATION
+#include <DMD2.h>                            // FOR P10 DISPLAY
+#include <fonts/SystemFont5x7.h>             // FONT STYLE IN P10
+#include <Servo.h>                           // FOR OPERATING SERVO (here 360* SERVO MOTOR)
+#include <SoftwareSerial.h>                  // FOR SERIAL COMUNICATION B/W ARDUINO & RASPBERRY PI
 
-#define DISPLAYS_ACROSS 1
-#define DISPLAYS_DOWN 1
+#define DISPLAYS_ACROSS 1                   //>  FOR P10 DISPLAY'S
+#define DISPLAYS_DOWN 1                     //>               MAX & MIN ROW TO PRINT LETTER
 
-const int Servo_bio = 3;
-const int Servo_nonbio = 5;
+volatile bool IRSFlag = false;              // FOR IRS PROTOCOL
 
-const int trigPin_b = 2;
-const int echoPin_b = 4;
+Servo MG996R1;                              //>  BIO & NONBIO 
+Servo MG996R2;                              //>             BIN'S SERVO MOTOR CLASS OBJECT
 
-const int trigPin_n = 10;
-const int echoPin_n = 12;
+const int SerMid = 90, BioC = 34, BioAC = 35, NbioC = 41, NbioAC = 42; // C,AC=> CLOCK & ANTICLOCK WISE MOTION DETECT PIN 
+const int S1flag = 1, S2flag = 2;  // SFlag => AT THE POINT SERVO SELECTOR
 
-const int angle = 115;         //change the angle as needed
-int pos = 0;
-int no_waste_dis = 30;         //change the value as needed
+const int trigPin_b = 2;                        //> ULTRA 
+const int echoPin_b = 4;                        //>       SONIC SENSOR 
+const int trigPin_n = 10;                       //>                    FOR BIO & NONBIO 
+const int echoPin_n = 12;                       //>                                      BIN'S WASTE DROP DETECTION
 
-Servo myservo_b;
-Servo myservo_n;
+int WASTE_RADIUS = 30;         // IF WASTE DROP UNDER THIS RADIUS RESPECTED BIN CLOSED (CHANGE IF NEEDED)
 
-SoftDMD dmd(DISPLAYS_ACROSS, DISPLAYS_DOWN);
-DMD_TextBox box(dmd, 0, 4, 34, 0); // Adjust size for your display
+SoftDMD dmd(DISPLAYS_ACROSS, DISPLAYS_DOWN);  //>  P10 DISPLAY
+DMD_TextBox box(dmd, 0, 4, 34, 0);            //>              CONFIGURATION (CHANGE IF NEEDED)
 
-void scrollMessage(const char *msg, int delayTime = 200) {
-  box.clear();
-  while (*msg) {
-    box.print(*msg);     // Print one character
-    Serial.print(*msg);  // Echo to Serial
+void scrollMessage(const char *msg, int delayTime = 200) {    // FUNCTION TO DISPLAY SENTANCE IN P10   
+  box.clear();    // RESET P10 SCREEN 
+  while (*msg) {  
+    box.print(*msg);     
+    Serial.print(*msg);  // LOGIC TO DISPLAY CHAR ONE BY ONE
     delay(delayTime);    
     msg++;
   }
@@ -38,163 +37,218 @@ void scrollMessage(const char *msg, int delayTime = 200) {
 }
 
 void setup() {
-  Serial.begin(9600);
-  attachInterrupt(digitalPinToInterrupt(2), IRSprotocal, FALLING);
-  dmd.setBrightness(255);
-  dmd.selectFont(SystemFont5x7);
-  dmd.begin();
-  myservo_b.attach(Servo_bio);
-  myservo_n.attach(Servo_nonbio);
-  pinMode(trigPin_b, OUTPUT);
-  pinMode(echoPin_b, INPUT);
-  pinMode(trigPin_n, OUTPUT);
-  pinMode(echoPin_n, INPUT);
-  pinMode(A0, OUTPUT);               //For controlling Raspberry pi
+  Serial.begin(9600);               // SERIAL MONITOR ACCESSING 
+  pinMode(2,INPUT_PULLUP);          // FOR SAY IF 2 PIN GIVES 1 THEN IRS PROTOCOL ACTIVATED
+  attachInterrupt(digitalPinToInterrupt(2), IRSprotocal, FALLING);   // ACCESS THE INTERRUPT PIN IN ARDUINO & CHANGE DIGITAL PIN TO INTERRUPT PIN MODE
+
+  MG996R1.attach(9);              //>   SERVO MOTOR IN BIO AND NON-BIO BIN'S
+  MG996R1.write(SerMid);          //>         SET TO 9 TO 11 th PIN
+  MG996R2.attach(11);             //>        SET BOTH MOTOR IN SERVOS
+  MG996R2.write(SerMid);          //>            MIDDLE POSITION     (CHANGE IF NEEDED)
+
+  dmd.setBrightness(255);              // |> P10 BRIGTNESS (CHANGE IF NEEDED)
+  dmd.selectFont(SystemFont5x7);       // |> P10 DISPLAY FONT
+  dmd.begin();                         // |> P10 START DISPLAYING
+
+  pinMode(trigPin_b, OUTPUT);    //>  ULTRA SONIC 1 TRIGGER PIN 
+  pinMode(echoPin_b, INPUT);     //>      ""  ECHO PIN
+  pinMode(trigPin_n, OUTPUT);    //>  ULTRA SONIC 2 TRIGGER PIN 
+  pinMode(echoPin_n, INPUT);     //>      ""  ECHO PIN
+
+  pinMode(A0, OUTPUT);                // FOR WAKE THE RASPBERRY PI IF IT IN SLEEP MODE
   delay(500);
 }
 
-void IRSprotocal() {
-  biobin();
-} 
+void IRSprotocal(){     // IRS PROTOCOL FUNCTION [!] DON'T WRITE MORE THAN 1 LINE CAUSE IRS PROTOCOL READ ONLY 1 LINE 
+  IRSFlag = true;
+}
 
-void biobin() {
-  int flag = 0;
-  
-  for (pos = 0; pos <= angle; pos += 1) { 
-    myservo_b.write(pos);              
-    delay(15);                       
-  }
+void biobin() {      // FUNCTION OF BIO BIN WHEN BIO WASTE IS DETECTED BY THE MODEL
 
-  while(flag!=1) {
+  clockwiseMovement(BioAC, S1flag);      // STEP 1 => OPEN BIO BIN'S SERVO 
 
+  while(true) {
     float duration, distance;
     digitalWrite(trigPin_b, LOW);
     delayMicroseconds(2);
     digitalWrite(trigPin_b, HIGH);
     delayMicroseconds(10);
     digitalWrite(trigPin_b, LOW);
-
+    if(distance > WASTE_RADIUS){ break; }         // SETP 2 => OPEN UNTIL ULTRA SONIC SENSOR DETECT WASTE DROPING
     duration = pulseIn(echoPin_b, HIGH);
     distance = (duration*.0343)/2;
     Serial.print("Distance: ");
     Serial.println(distance);
-    delay(100);
-
-    if (distance > no_waste_dis){
-      flag = 1;
-    }     
-
-    delay(2500);
-
+    delay(100);                  
   }
   
-  for (pos = angle; pos >= 0; pos -= 1) {
-    myservo_b.write(pos);              
-    delay(15);                       
-  }
+  anticlockwiseMovement(BioC, S1flag);    // STEP 3 => CLOSE BIO BIN'S SERVO
 
 }
 
-void nonbiobin() {
-  int flag = 0;
-  
-  for (pos = 0; pos <= angle; pos += 1) { 
-    myservo_n.write(pos);              
-    delay(15);                       
-  }
+void nonbiobin() {     // FUNCTION OF NON-BIO BIN WHEN BIO WASTE IS DETECTED BY THE MODEL
 
-  while(flag!=1) {
+  clockwiseMovement(NbioAC, S2flag);   // STEP 1 => OPEN NON-BIO BIN'S SERVO
 
+  while(true) {
     float duration, distance;
     digitalWrite(trigPin_n, LOW);
     delayMicroseconds(2);
     digitalWrite(trigPin_n, HIGH);
     delayMicroseconds(10);
     digitalWrite(trigPin_n, LOW);
-
+    if(distance > WASTE_RADIUS){ break; }         // SETP 2 => OPEN UNTIL ULTRA SONIC DSENSOR DETECT WASTE DROPING
     duration = pulseIn(echoPin_n, HIGH);
     distance = (duration*.0343)/2;
     Serial.print("Distance: ");
     Serial.println(distance);
     delay(100);
-
-    if (distance > no_waste_dis){
-      flag = 1;
-    }     
-
-    delay(2500);
-
   }
+
+  anticlockwiseMovement(NbioC, S2flag);   // STEP 3 => CLOSE NON-BIO BIN'S SERVO
+
+}
+
+void clockwiseMovement(int p, int s) {         // FUNCTION TO MOVE SERVO IN CLOCKWISE PARAMETERS F(C , Sflag)                                          
   
-  for (pos = angle; pos >= 0; pos -= 1) {
-    myservo_n.write(pos);              
-    delay(15);                       
+    if (s == 1) { // FOR BIO BIN TO OPERATE CLOCKWISE MOTION
+      Serial.println("Starting 360-degree clockwise rotating...(bio)");
+      MG996R1.write(SerMid);   // SET SERVO AT MIDDLE POTISION INIALLY
+      delay(250);             // HERE DELAY WORKS AS SPEED OF SERVO   
+      MG996R1.write(70);     // ROTATE THE SERVO IN CLOCKWISED BY 90*(MIDDLE)-70*(CHANGE IF NEEDED)) = 20(DEGREE)
+      while (1) {           // OPENING... UNTIL 
+        int indicator = digitalRead(p);
+        if (indicator == HIGH)   // C PIN GET HITTED BY STICK & THE AC PIN GET HIGH
+        {
+        MG996R1.write(SerMid);  
+        Serial.println("360-degree Clockwise rotation completed (bio)");
+        break;
+        }
+        delay(100);   // REST PERIOD
+      }
+    }
+     
+    else if (s == 2) {  // FOR NON-BIO BIN TO OPERATE CLOCKWISE MOTION
+      Serial.println("clockwise rotating...(non-bio)");
+      MG996R2.write(SerMid);    // SET SERVO AT MIDDLE POTISION INIALLY
+      delay(250);              // HERE DELAY WORKS AS SPEED OF SERVO 
+      MG996R2.write(70);      // ROTATE THE SERVO IN CLOCKWISED BY 90*(MIDDLE)-70*(CHANGE IF NEEDED)) = 20(DEGREE)
+      while (1) {            // OPENING... UNTIL 
+        int indicator = digitalRead(p);
+        if (indicator == HIGH)    // C PIN GET HITTED BY STICK & THE AC PIN GET HIGH
+        {    
+        MG996R2.write(SerMid);  
+        Serial.println("Clockwise rotation completed (non-bio)");
+        break;
+        }
+        delay(100);   // REST PERIOD
+      }
+    } 
+}
+
+void anticlockwiseMovement(int p, int s) {
+  
+    if (s == 1) {  // FOR BIO BIN TO OPERATE ANTICLOCKWISE MOTION
+      Serial.println("anticlockwise rotating...(bio)");      
+      MG996R1.write(SerMid);      // SET SERVO AT MIDDLE POTISION INIALLY
+      delay(250);                // HERE DELAY WORKS AS SPEED OF SERVO 
+      MG996R1.write(130);       // ROTATE THE SERVO IN ANTICLOCKWISED BY 130*(MIDDLE)-90*(CHANGE IF NEEDED)) = 40(DEGREE)
+      while (1) {              // CLOSING... UNTIL 
+        int indicator = digitalRead(p);
+        if (indicator == HIGH)      // AC PIN GET HITTED BY STICK & THE C PIN GET HIGH
+        {
+        MG996R1.write(SerMid);  
+        Serial.println("antiClockwise rotation completed (bio)"); 
+        break;
+        }
+        delay(100);   // REST PERIOD
+      }
+    } 
+    else if (s == 2) { // FOR NON-BIO BIN TO OPERATE ANTICLOCKWISE MOTION
+      Serial.println("anticlockwise rotation...(non-bio)");   
+      MG996R2.write(SerMid);       // SET SERVO AT MIDDLE POTISION INIALLY
+      delay(250);                 // HERE DELAY WORKS AS SPEED OF SERVO 
+      MG996R2.write(130);        // ROTATE THE SERVO IN ANTICLOCKWISED BY 130*(MIDDLE)-90*(CHANGE IF NEEDED)) = 40(DEGREE)
+      while (1) {               // CLOSING... UNTIL 
+        int indicator = digitalRead(p);
+        if (indicator == HIGH)       // AC PIN GET HITTED BY STICK & THE C PIN GET HIGH
+        {
+        MG996R2.write(SerMid);  
+        Serial.println("antiClockwise rotation completed (non-bio)"); 
+        break;
+        }
+        delay(100);   // REST PERIOD
+      }
+    }
+}
+
+String receiveData() {                                      //>   RECIVE DATA FROM RASPBERRY ML CODE     
+    String receivedData = Serial.readStringUntil('\n');     //>       THAT IT TELL WHEATHER 
+    receivedData.trim();                                    //>     BIO OR NON-BIO BIN TO PROCESS
+    return receivedData;                                    //>          Range < 0 , 1 >
+}
+
+void loop() {                                                                                
+
+  if(IRSFlag){         // IRS PROTOCOL IF PROCESS STUCK AT ANY POINT BY CLICKING THE INTERRUPT BOTTOM...
+    IRSFlag = false;
+    clockwiseMovement(BioAC, S1flag);            // DEFAULT OPEN THE BIO PIN 
+    unsigned long IRSbuffer = millis();  // WAIT FOR 16 SEC
+    while (millis() - IRSbuffer < 15000) {
+        delay(50);
+    }
+    anticlockwiseMovement(BioC, S1flag);   // THEN CLOSE THE BIN
   }
-
-}
-
-String receiveData() {
-    String receivedData = Serial.readStringUntil('\n');  // Read incoming data line
-    receivedData.trim(); // Remove any trailing \r or whitespace
-    return receivedData;
-}
-
-void loop() {
-
-  scrollMessage("THANKS, YOUR CREDIT HAS BEEN TRANSFERED", 150);
-
-  // 2. Wait for input from Serial
-  while (!Serial.available()) {
-    // Stay in this loop displaying WAITING until data arrives
+          
+  while (!Serial.available()) {   // DISPLAY "SMART BIN" IN THE P10 DISPLAY UNTIL BAR CODE SEND DATA TO SERIAL MONITOR
     box.clear();
     scrollMessage("SMART BIN", 200);
     delay(100);
   }
 
-  // 3. Read and scroll the data
-  String received = "HI, " + Serial.readStringUntil('\n');
+
+  String received = "HI, " + Serial.readStringUntil('\n');  // DISPLAY HI , + { BAR CODE SCANNED INFO }
   received.trim();
-  delay(3000); // 3-second delay before display
+  delay(3000); 
 
-  digitalWrite(A0, HIGH);
+  digitalWrite(A0, HIGH); // WAKEUP THE RASPBERRY IF IT IS IN SLEEP MODE
 
-  scrollMessage(received.c_str(), 200);
-  scrollMessage(received.c_str(), 200);
+  scrollMessage(received.c_str(), 200);  //>  DISPLAY BAR SCANNED INFO IN P10         
+  scrollMessage(received.c_str(), 200);  //>       2 TIMES
 
-  scrollMessage("SHOW THE WASTE", 200);
+  scrollMessage("SHOW THE WASTE", 200);  // OPTIONAL PART => DISPLAY "SHOW THE WASTE" IN P10 UNTIL RASPBERRY SEND DATA TO SERIAL MONITOR
   delay(2000);
 
-  while (!Serial.available()) {
-    // Stay in this loop displaying WAITING until data arrives
-    delay(100);
+  while (!Serial.available()) {  // IF RASPBEERY SEND'S DATA TO SERIAL 
+    delay(100);   // REST PERIOD
   }
 
-  if (receiveData() == '0')
+  if (receiveData() == "0")  // RASPBEERY PY.SCRIPT DETECT BIO WASTE SEND "0"
   {
     scrollMessage("BIO WASTE", 200);
     Serial.println("BIO bin sequence");
-    biobin();
+    biobin();  // BIO BIN PROCESS START
   }
-  else if (receiveData() == '1')
+  else if (receiveData() == "1")  // RASPBEERY PY.SCRIPT DETECT NON-BIO WASTE SEND "0"
   {
     scrollMessage("NON-BIO WASTE", 200);
     Serial.println("NON-BIO bin sequence");
-    nonbiobin();
+    nonbiobin();  // NON-BIO BIN PROCESS START
   }
   else 
   {
-    Serial.println("INVALID RESPONSE");
+    Serial.println("INVALID RESPONSE");  // ELSE NO RESPONSE FOUND
   }
 
-  digitalWrite(A0, HIGH);
+  digitalWrite(A0, HIGH);  // // WAKEUP THE RASPBERRY IF IT IS IN SLEEP MODE
 
-  // 4. Display "DONE"
-  scrollMessage("DONE", 200);
+  scrollMessage("THANKS, YOUR CREDIT HAS BEEN TRANSFERED", 150);  // DISPLAY THANKS
+  scrollMessage("DONE", 200); // THEN FINALLY DISPLAY DONE
 
-  // 5. Wait for 10 seconds (ignoring any incoming data)
+  
   unsigned long cooldownStart = millis();
-  while (millis() - cooldownStart < 4000) {
-    while (Serial.available()) Serial.read(); // Clear input buffer
+  while (millis() - cooldownStart < 4000) {    // GIVE 4 SEC REST TO AURDINO
+    while (Serial.available()) Serial.read(); 
     delay(50);
   }
 }
