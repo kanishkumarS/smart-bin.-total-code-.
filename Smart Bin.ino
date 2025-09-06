@@ -51,9 +51,9 @@ void setup() {
   dmd.begin();                         // |> P10 START DISPLAYING
 
   pinMode(trigPin_b, OUTPUT);    //>  ULTRA SONIC 1 TRIGGER PIN 
-  pinMode(echoPin_b, INPUT);     //>      ""  ECHO PIN
+  pinMode(echoPin_b, INPUT);     //>      ""        ECHO PIN
   pinMode(trigPin_n, OUTPUT);    //>  ULTRA SONIC 2 TRIGGER PIN 
-  pinMode(echoPin_n, INPUT);     //>      ""  ECHO PIN
+  pinMode(echoPin_n, INPUT);     //>      ""        ECHO PIN
 
   pinMode(A0, OUTPUT);                // FOR WAKE THE RASPBERRY PI IF IT IN SLEEP MODE
   delay(500);
@@ -86,7 +86,7 @@ void biobin() {      // FUNCTION OF BIO BIN WHEN BIO WASTE IS DETECTED BY THE MO
 
 }
 
-void nonbiobin() {     // FUNCTION OF NON-BIO BIN WHEN BIO WASTE IS DETECTED BY THE MODEL
+void nonbiobin() {     // FUNCTION OF NON-BIO BIN WHEN NONBIO WASTE IS DETECTED BY THE MODEL
 
   clockwiseMovement(NbioAC, S2flag);   // STEP 1 => OPEN NON-BIO BIN'S SERVO
 
@@ -229,7 +229,7 @@ void loop() {
     Serial.println("BIO bin sequence");
     biobin();  // BIO BIN PROCESS START
   }
-  else if (receiveData() == "1")  // RASPBEERY PY.SCRIPT DETECT NON-BIO WASTE SEND "0"
+  else if (receiveData() == "1")  // RASPBEERY PY.SCRIPT DETECT NON-BIO WASTE SEND "1"
   {
     scrollMessage("NON-BIO WASTE", 200);
     Serial.println("NON-BIO bin sequence");
